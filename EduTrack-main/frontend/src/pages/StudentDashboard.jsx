@@ -169,21 +169,21 @@ function StudentDashboard() {
       </section>
 
       <section className="rounded-soft bg-white p-5 shadow-soft">
-          <h2 className="mb-3 text-lg font-semibold text-edu-navy">Student Info</h2>
-          <div className="space-y-2">
-            {[
-              `Student ID: ${student?.student_id || 'NA'}`,
-              `Email: ${student?.email || 'NA'}`,
-              `Batch: ${student?.batch || 'NA'}`,
-            ].map((subject) => (
-              <div
-                key={subject}
-                className="rounded-lg border border-edu-blue/15 bg-edu-bg px-3 py-2 text-sm font-medium text-edu-navy transition hover:border-edu-teal"
-              >
-                {subject}
-              </div>
-            ))}
-          </div>
+        <h2 className="mb-3 text-lg font-semibold text-edu-navy">Student Info</h2>
+        <div className="space-y-2">
+          {[
+            `Student ID: ${student?.student_id || 'NA'}`,
+            `Email: ${student?.email || 'NA'}`,
+            `Batch: ${student?.batch || 'NA'}`,
+          ].map((subject) => (
+            <div
+              key={subject}
+              className="rounded-lg border border-edu-blue/15 bg-edu-bg px-3 py-2 text-sm font-medium text-edu-navy transition hover:border-edu-teal"
+            >
+              {subject}
+            </div>
+          ))}
+        </div>
       </section>
     </div>
   )

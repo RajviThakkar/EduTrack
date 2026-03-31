@@ -52,7 +52,7 @@ function Navbar() {
     setProfile(updatedProfile)
     try {
       localStorage.setItem('edutrack_user', JSON.stringify(updatedProfile))
-    } catch {}
+    } catch { }
     setIsEditingProfile(false)
   }
 

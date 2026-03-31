@@ -20,7 +20,7 @@ function FacultyDashboard() {
           return parsed.name.trim()
         }
       }
-    } catch {}
+    } catch { }
     return 'Faculty'
   }, [])
 

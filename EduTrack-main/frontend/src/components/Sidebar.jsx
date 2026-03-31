@@ -37,10 +37,9 @@ function NavStrip({ links }) {
             key={link.to}
             to={link.to}
             className={({ isActive }) =>
-              `truncate rounded-xl px-3 py-2.5 text-center font-medium transition-all duration-200 ${
-                isActive
-                  ? 'bg-white/22 text-white shadow-sm'
-                  : 'text-white/72 hover:bg-white/10 hover:text-white'
+              `truncate rounded-xl px-3 py-2.5 text-center font-medium transition-all duration-200 ${isActive
+                ? 'bg-white/22 text-white shadow-sm'
+                : 'text-white/72 hover:bg-white/10 hover:text-white'
               }`
             }
           >

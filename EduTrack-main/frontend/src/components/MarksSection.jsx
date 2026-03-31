@@ -12,8 +12,8 @@ const BASE_STUDENTS = [
 ]
 
 const ACCENT_COLORS = {
-  Quiz:       '#2FA4A9',
-  Exam:       '#4E98A2',
+  Quiz: '#2FA4A9',
+  Exam: '#4E98A2',
   Assignment: '#98B196',
   Practicals: '#215D87',
 }
@@ -43,11 +43,11 @@ function MarksSection({ type, mode = 'enter', initialData = null, records = [], 
         const response = await api.get('/api/students')
         const dbStudents = Array.isArray(response?.data)
           ? response.data.map((student) => ({
-              id: String(student.student_id),
-              name: student.name || String(student.student_id),
-              branch: student.branch,
-              semester: String(student.semester || ''),
-            }))
+            id: String(student.student_id),
+            name: student.name || String(student.student_id),
+            branch: student.branch,
+            semester: String(student.semester || ''),
+          }))
           : []
 
         if (dbStudents.length > 0) {
@@ -147,8 +147,8 @@ function MarksSection({ type, mode = 'enter', initialData = null, records = [], 
 
   const displayedStudents = isViewMode && showResult
     ? (databaseStudents.length > 0 ? databaseStudents : students).filter(
-        (s) => !semester || String(s.semester || '') === String(semester)
-      )
+      (s) => !semester || String(s.semester || '') === String(semester)
+    )
     : filteredStudents
   const displayedMarks = isViewMode && viewModeMarks ? viewModeMarks : (isViewMode ? matchedRecord?.marks || {} : marks)
   const displayedOutOfMarks = isViewMode ? matchedRecord?.outOfMarks ?? '' : outOfMarks

@@ -79,7 +79,7 @@ export default function AdminAllocateClasses() {
         batch: batchNameInput,
         password_template: batchPasswordInput
       })
-      
+
       setStatus({ type: 'success', message: res.data.message ?? 'Batch allocated successfully.' })
       // Reload students after batch allocation
       api.get('/api/students')
@@ -96,11 +96,10 @@ export default function AdminAllocateClasses() {
 
       {status && (
         <div
-          className={`rounded-lg px-4 py-3 text-sm font-medium ${
-            status.type === 'success'
+          className={`rounded-lg px-4 py-3 text-sm font-medium ${status.type === 'success'
               ? 'bg-green-50 text-green-700 border border-green-200'
               : 'bg-red-50 text-red-700 border border-red-200'
-          }`}
+            }`}
         >
           {status.message}
         </div>
@@ -166,7 +165,7 @@ export default function AdminAllocateClasses() {
               ))}
             </select>
           </div>
-          
+
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-edu-navy/80">Default Password</label>
             <input
@@ -231,9 +230,8 @@ export default function AdminAllocateClasses() {
                 {filteredStudents.map((s, i) => (
                   <tr
                     key={s.id}
-                    className={`border-b border-edu-blue/5 transition-colors hover:bg-edu-blue/5 ${
-                      i % 2 === 0 ? '' : 'bg-edu-bg/30'
-                    }`}
+                    className={`border-b border-edu-blue/5 transition-colors hover:bg-edu-blue/5 ${i % 2 === 0 ? '' : 'bg-edu-bg/30'
+                      }`}
                   >
                     <td className="px-5 py-3 font-mono text-xs text-edu-navy/70">{s.student_id}</td>
                     <td className="px-5 py-3 font-medium text-edu-navy">{s.name}</td>

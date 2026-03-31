@@ -90,18 +90,18 @@ function AttendanceSection({ mode = 'enter', initialData = null, records = [], o
         const response = await api.get('/api/students')
         const dbStudents = Array.isArray(response?.data)
           ? response.data.map((student) => ({
-              id: String(student.student_id),
-              name: student.name || String(student.student_id),
-              branch: student.branch,
-              semester: String(student.semester || ''),
-              batch: student.batch,
-            }))
+            id: String(student.student_id),
+            name: student.name || String(student.student_id),
+            branch: student.branch,
+            semester: String(student.semester || ''),
+            batch: student.batch,
+          }))
           : []
 
         if (dbStudents.length === 0) return
 
         setEnterStudents(dbStudents)
-        
+
         if (!isViewMode) {
           setAttendance((prev) => {
             const next = { ...prev }
@@ -321,11 +321,10 @@ function AttendanceSection({ mode = 'enter', initialData = null, records = [], o
                   setSessionType('Lecture')
                   setBatch('')
                 }}
-                className={`flex-1 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${
-                  sessionType === 'Lecture'
+                className={`flex-1 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${sessionType === 'Lecture'
                     ? 'bg-[#2FA4A9] text-white'
                     : 'border border-edu-blue/20 bg-white text-edu-navy hover:border-edu-teal'
-                }`}
+                  }`}
               >
                 Lecture
               </button>
@@ -335,11 +334,10 @@ function AttendanceSection({ mode = 'enter', initialData = null, records = [], o
                   setSessionType('Lab')
                   setBatch('')
                 }}
-                className={`flex-1 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${
-                  sessionType === 'Lab'
+                className={`flex-1 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${sessionType === 'Lab'
                     ? 'bg-[#2FA4A9] text-white'
                     : 'border border-edu-blue/20 bg-white text-edu-navy hover:border-edu-teal'
-                }`}
+                  }`}
               >
                 Lab
               </button>
