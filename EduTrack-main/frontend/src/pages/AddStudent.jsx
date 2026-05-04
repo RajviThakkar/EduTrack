@@ -94,7 +94,6 @@ export default function AddStudent() {
 
       <section className="rounded-2xl border border-edu-blue/20 bg-white p-6 shadow-soft">
         <h2 className="mb-6 text-lg font-semibold text-edu-navy">Add New Student</h2>
-        <p className="mb-4 text-sm text-edu-blue">Assigned counsellor: {counsellorName}</p>
 
         {status && (
           <div

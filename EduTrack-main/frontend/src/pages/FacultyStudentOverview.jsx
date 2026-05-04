@@ -2,17 +2,15 @@ import { useEffect, useMemo, useState } from 'react'
 import AlertBanner from '../components/AlertBanner'
 import FilterBar from '../components/FilterBar'
 import api from '../api/api'
-import { BRANCH_OPTIONS, SUBJECT_OPTIONS, SEMESTER_OPTIONS } from '../config/academicOptions'
+import { BRANCH_OPTIONS, SEMESTER_OPTIONS } from '../config/academicOptions'
 
 function FacultyStudentOverview() {
   const [filters, setFilters] = useState({
     branch: '',
-    subject: '',
     semester: '',
   })
   const [appliedFilters, setAppliedFilters] = useState({
     branch: '',
-    subject: '',
     semester: '',
   })
   const [hasApplied, setHasApplied] = useState(false)
@@ -50,7 +48,7 @@ function FacultyStudentOverview() {
     loadData()
   }, [])
 
-  const canApply = Boolean(filters.branch && filters.subject && filters.semester)
+  const canApply = Boolean(filters.branch && filters.semester)
 
   const handleFilterChange = (field, value) => {
     setFilters((current) => ({ ...current, [field]: value }))
@@ -66,10 +64,6 @@ function FacultyStudentOverview() {
     () => [...new Set([...BRANCH_OPTIONS, ...rows.map((row) => row.branch).filter(Boolean)])],
     [rows],
   )
-  const subjectOptions = useMemo(
-    () => [...new Set([...SUBJECT_OPTIONS, ...rows.map((row) => row.subject).filter(Boolean)])],
-    [rows],
-  )
   const semesterOptions = useMemo(
     () => [...new Set([...SEMESTER_OPTIONS, ...rows.map((row) => row.semester).filter(Boolean)])],
     [rows],
@@ -82,9 +76,8 @@ function FacultyStudentOverview() {
 
     const next = rows.filter((row) => {
       const matchesBranch = !appliedFilters.branch || row.branch === appliedFilters.branch
-      const matchesSubject = !appliedFilters.subject || row.subject === appliedFilters.subject
       const matchesSemester = !appliedFilters.semester || row.semester === appliedFilters.semester
-      return matchesBranch && matchesSubject && matchesSemester
+      return matchesBranch && matchesSemester
     })
 
     return next.sort((a, b) => riskRank[b.risk] - riskRank[a.risk])
@@ -104,7 +97,6 @@ function FacultyStudentOverview() {
         onApply={handleApply}
         canApply={canApply}
         branchOptions={branchOptions}
-        subjectOptions={subjectOptions}
         semesterOptions={semesterOptions}
       />
 

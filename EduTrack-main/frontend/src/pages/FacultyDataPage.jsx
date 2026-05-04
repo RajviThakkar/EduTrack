@@ -23,11 +23,11 @@ function FacultyDataPage() {
   }
 
   const handleAttendanceSubmit = async (payload) => {
-    const today = new Date().toISOString().slice(0, 10)
+    const attendanceDate = payload.date || new Date().toISOString().slice(0, 10)
     const attendanceEntries = (payload.students || []).map((student) => ({
       student_id: String(student.id),
       subject: payload.subject,
-      date: today,
+      date: attendanceDate,
       status: payload.attendance?.[student.id] ? 'Present' : 'Absent',
     }))
 
@@ -89,7 +89,7 @@ function FacultyDataPage() {
             onClick={() => setMode('view')}
             className="flex-1 rounded-xl border-2 border-[#2FA4A9] bg-white px-6 py-4 text-lg font-semibold text-[#2FA4A9] transition hover:bg-[#2FA4A9]/5"
           >
-            📊 View Student Data
+            View Student Data
           </button>
         </div>
       )}

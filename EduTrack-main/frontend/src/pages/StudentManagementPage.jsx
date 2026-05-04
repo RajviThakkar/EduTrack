@@ -2,42 +2,41 @@ import { useEffect, useState } from 'react'
 import api from '../api/api'
 import { BRANCH_OPTIONS, SEMESTER_OPTIONS, BATCH_OPTIONS } from '../config/academicOptions'
 
-const editableKeys = ['student_id', 'name', 'branch', 'semester', 'batch', 'email', 'year']
-
 export default function StudentManagementPage() {
-  const [allStudents, setAllStudents] = useState([])
+  const [allStudents, setAllStudents]         = useState([])
   const [filteredStudents, setFilteredStudents] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [status, setStatus] = useState(null) // { type, message }
+  const [loading, setLoading]                 = useState(true)
+  const [status, setStatus]                   = useState(null)
 
   // Filters
-  const [searchQuery, setSearchQuery] = useState('')
-  const [filterBranch, setFilterBranch] = useState('')
+  const [searchQuery, setSearchQuery]     = useState('')
+  const [filterBranch, setFilterBranch]   = useState('')
   const [filterSemester, setFilterSemester] = useState('')
-  const [filterBatch, setFilterBatch] = useState('')
+  const [filterBatch, setFilterBatch]     = useState('')
 
   // Edit mode
   const [editingStudentId, setEditingStudentId] = useState(null)
-  const [editForm, setEditForm] = useState({})
-  const [savingEdit, setSavingEdit] = useState(false)
-  const [deletingId, setDeletingId] = useState(null)
+  const [editForm, setEditForm]           = useState({})
+  const [savingEdit, setSavingEdit]       = useState(false)
+  const [deletingId, setDeletingId]       = useState(null)
 
-  useEffect(() => {
-    loadAllStudents()
-  }, [])
+  // Multi-select state
+  const [selectedIds, setSelectedIds]     = useState(new Set())
+  const [bulkDeleting, setBulkDeleting]   = useState(false)
 
-  // Auto-filter on any filter change
-  useEffect(() => {
-    applyFilters()
-  }, [allStudents, searchQuery, filterBranch, filterSemester, filterBatch])
+  useEffect(() => { loadAllStudents() }, [])
+
+  useEffect(() => { applyFilters() }, [allStudents, searchQuery, filterBranch, filterSemester, filterBatch])
+
+  // Clear selection when filtered list changes
+  useEffect(() => { setSelectedIds(new Set()) }, [filteredStudents])
 
   async function loadAllStudents() {
     setLoading(true)
     try {
       const { data } = await api.get('/api/students', { timeout: 15000 })
-      const list = Array.isArray(data) ? data : []
-      setAllStudents(list)
-    } catch (error) {
+      setAllStudents(Array.isArray(data) ? data : [])
+    } catch {
       setStatus({ type: 'error', message: 'Failed to load students' })
       setAllStudents([])
     } finally {
@@ -47,8 +46,6 @@ export default function StudentManagementPage() {
 
   function applyFilters() {
     let results = allStudents
-
-    // Search by name, email, student_id
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
       results = results.filter(
@@ -58,35 +55,98 @@ export default function StudentManagementPage() {
           (s.student_id || '').toLowerCase().includes(q),
       )
     }
-
-    // Filter by branch
-    if (filterBranch) {
-      results = results.filter((s) => String(s.branch || '') === filterBranch)
-    }
-
-    // Filter by semester
-    if (filterSemester) {
-      results = results.filter((s) => String(s.semester || '') === filterSemester)
-    }
-
-    // Filter by batch
-    if (filterBatch) {
-      results = results.filter((s) => String(s.batch || '') === filterBatch)
-    }
-
+    if (filterBranch)   results = results.filter((s) => String(s.branch || '')   === filterBranch)
+    if (filterSemester) results = results.filter((s) => String(s.semester || '') === filterSemester)
+    if (filterBatch)    results = results.filter((s) => String(s.batch || '')    === filterBatch)
     setFilteredStudents(results)
   }
 
+  // ── Selection helpers ────────────────────────────────────────────────────────
+  const allOnPageSelected =
+    filteredStudents.length > 0 && filteredStudents.every((s) => selectedIds.has(s.id))
+
+  function toggleSelectAll() {
+    if (allOnPageSelected) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(filteredStudents.map((s) => s.id)))
+    }
+  }
+
+  function toggleSelect(id) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  // ── Bulk delete ──────────────────────────────────────────────────────────────
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return
+    const confirmed = window.confirm(
+      `Delete ${selectedIds.size} selected student${selectedIds.size > 1 ? 's' : ''}? This cannot be undone.`,
+    )
+    if (!confirmed) return
+
+    setBulkDeleting(true)
+    setStatus(null)
+    let successCount = 0
+    let failCount    = 0
+
+    await Promise.all(
+      [...selectedIds].map(async (id) => {
+        try {
+          await api.delete(`/api/students/${id}`, { timeout: 15000 })
+          successCount++
+        } catch {
+          failCount++
+        }
+      }),
+    )
+
+    setBulkDeleting(false)
+    setSelectedIds(new Set())
+
+    if (failCount === 0) {
+      setStatus({ type: 'success', message: `${successCount} student${successCount > 1 ? 's' : ''} deleted successfully.` })
+    } else {
+      setStatus({ type: 'error', message: `${successCount} deleted, ${failCount} failed.` })
+    }
+
+    await loadAllStudents()
+  }
+
+  // ── Single delete ────────────────────────────────────────────────────────────
+  async function deleteStudent(studentId, studentName) {
+    const confirmed = window.confirm(`Delete student "${studentName}"? This cannot be undone.`)
+    if (!confirmed) return
+
+    setDeletingId(studentId)
+    try {
+      await api.delete(`/api/students/${studentId}`, { timeout: 15000 })
+      setStatus({ type: 'success', message: `Student "${studentName}" deleted successfully.` })
+      if (editingStudentId === studentId) setEditingStudentId(null)
+      setSelectedIds((prev) => { const n = new Set(prev); n.delete(studentId); return n })
+      await loadAllStudents()
+    } catch (error) {
+      setStatus({ type: 'error', message: error?.response?.data?.error || 'Failed to delete student.' })
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  // ── Edit helpers ─────────────────────────────────────────────────────────────
   function startEdit(student) {
     setEditingStudentId(student.id)
     setEditForm({
-      student_id: student.student_id || '',
-      name: student.name || '',
-      branch: student.branch || '',
-      semester: String(student.semester || ''),
-      batch: student.batch || '',
-      email: student.email || '',
-      year: student.year || '',
+      student_id:     student.student_id || '',
+      name:           student.name || '',
+      branch:         student.branch || '',
+      semester:       String(student.semester || ''),
+      batch:          student.batch || '',
+      email:          student.email || '',
+      year:           student.year || '',
       counsellor_name: student.counsellor_name || '',
     })
     setStatus(null)
@@ -99,11 +159,7 @@ export default function StudentManagementPage() {
   async function saveEdit(studentId) {
     setSavingEdit(true)
     try {
-      const payload = {
-        ...editForm,
-        semester: Number(editForm.semester),
-      }
-      await api.put(`/api/students/${studentId}`, payload, { timeout: 15000 })
+      await api.put(`/api/students/${studentId}`, { ...editForm, semester: Number(editForm.semester) }, { timeout: 15000 })
       setStatus({ type: 'success', message: 'Student updated successfully.' })
       setEditingStudentId(null)
       await loadAllStudents()
@@ -114,55 +170,27 @@ export default function StudentManagementPage() {
     }
   }
 
-  async function deleteStudent(studentId, studentName) {
-    const confirmed = window.confirm(`Delete student "${studentName}"? This cannot be undone.`)
-    if (!confirmed) return
-
-    setDeletingId(studentId)
-    try {
-      await api.delete(`/api/students/${studentId}`, { timeout: 15000 })
-      setStatus({ type: 'success', message: `Student "${studentName}" deleted successfully.` })
-      if (editingStudentId === studentId) {
-        setEditingStudentId(null)
-      }
-      await loadAllStudents()
-    } catch (error) {
-      setStatus({ type: 'error', message: error?.response?.data?.error || 'Failed to delete student.' })
-    } finally {
-      setDeletingId(null)
-    }
-  }
-
   function clearFilters() {
-    setSearchQuery('')
-    setFilterBranch('')
-    setFilterSemester('')
-    setFilterBatch('')
+    setSearchQuery(''); setFilterBranch(''); setFilterSemester(''); setFilterBatch('')
   }
 
   const hasActiveFilters = searchQuery || filterBranch || filterSemester || filterBatch
 
   return (
     <div className="space-y-6 px-4 py-8 sm:px-6 lg:px-8">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-edu-navy">Student Management</h1>
-        <p className="mt-1 text-sm text-edu-blue">View, update, and manage all students in the system</p>
-      </div>
 
       {/* Status message */}
       {status && (
-        <div
-          className={`rounded-xl px-4 py-3 text-sm font-medium ${status.type === 'success'
-              ? 'border border-green-200 bg-green-50 text-green-700'
-              : 'border border-red-200 bg-red-50 text-red-700'
-            }`}
-        >
+        <div className={`rounded-xl px-4 py-3 text-sm font-medium ${
+          status.type === 'success'
+            ? 'border border-green-200 bg-green-50 text-green-700'
+            : 'border border-red-200 bg-red-50 text-red-700'
+        }`}>
           {status.message}
         </div>
       )}
 
-      {/* Filters Section */}
+      {/* Filters */}
       <div className="rounded-2xl border border-edu-blue/20 bg-white p-6 shadow-soft">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-edu-navy">Filters</h2>
@@ -176,11 +204,9 @@ export default function StudentManagementPage() {
             </button>
           )}
         </div>
-
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {/* Search */}
           <div>
-            <label className="mb-1.5 text-xs font-medium uppercase text-edu-navy/70">Search</label>
+            <label className="mb-1.5 block text-xs font-medium uppercase text-edu-navy/70">Search</label>
             <input
               type="text"
               placeholder="Name, Email, ID..."
@@ -189,75 +215,62 @@ export default function StudentManagementPage() {
               className="w-full rounded-lg border border-edu-blue/20 bg-edu-bg px-3 py-2 text-sm text-edu-navy placeholder:text-edu-navy/30 focus:border-edu-teal focus:outline-none"
             />
           </div>
-
-          {/* Branch */}
           <div>
-            <label className="mb-1.5 text-xs font-medium uppercase text-edu-navy/70">Branch</label>
-            <select
-              value={filterBranch}
-              onChange={(e) => setFilterBranch(e.target.value)}
-              className="w-full rounded-lg border border-edu-blue/20 bg-edu-bg px-3 py-2 text-sm text-edu-navy focus:border-edu-teal focus:outline-none"
-            >
+            <label className="mb-1.5 block text-xs font-medium uppercase text-edu-navy/70">Branch</label>
+            <select value={filterBranch} onChange={(e) => setFilterBranch(e.target.value)} className="w-full rounded-lg border border-edu-blue/20 bg-edu-bg px-3 py-2 text-sm text-edu-navy focus:border-edu-teal focus:outline-none">
               <option value="">All Branches</option>
-              {BRANCH_OPTIONS.map((b) => (
-                <option key={b} value={b}>
-                  {b}
-                </option>
-              ))}
+              {BRANCH_OPTIONS.map((b) => <option key={b} value={b}>{b}</option>)}
             </select>
           </div>
-
-          {/* Semester */}
           <div>
-            <label className="mb-1.5 text-xs font-medium uppercase text-edu-navy/70">Semester</label>
-            <select
-              value={filterSemester}
-              onChange={(e) => setFilterSemester(e.target.value)}
-              className="w-full rounded-lg border border-edu-blue/20 bg-edu-bg px-3 py-2 text-sm text-edu-navy focus:border-edu-teal focus:outline-none"
-            >
+            <label className="mb-1.5 block text-xs font-medium uppercase text-edu-navy/70">Semester</label>
+            <select value={filterSemester} onChange={(e) => setFilterSemester(e.target.value)} className="w-full rounded-lg border border-edu-blue/20 bg-edu-bg px-3 py-2 text-sm text-edu-navy focus:border-edu-teal focus:outline-none">
               <option value="">All Semesters</option>
-              {SEMESTER_OPTIONS.map((s) => (
-                <option key={s} value={String(s)}>
-                  Semester {s}
-                </option>
-              ))}
+              {SEMESTER_OPTIONS.map((s) => <option key={s} value={String(s)}>Semester {s}</option>)}
             </select>
           </div>
-
-          {/* Batch */}
           <div>
-            <label className="mb-1.5 text-xs font-medium uppercase text-edu-navy/70">Batch</label>
-            <select
-              value={filterBatch}
-              onChange={(e) => setFilterBatch(e.target.value)}
-              className="w-full rounded-lg border border-edu-blue/20 bg-edu-bg px-3 py-2 text-sm text-edu-navy focus:border-edu-teal focus:outline-none"
-            >
+            <label className="mb-1.5 block text-xs font-medium uppercase text-edu-navy/70">Batch</label>
+            <select value={filterBatch} onChange={(e) => setFilterBatch(e.target.value)} className="w-full rounded-lg border border-edu-blue/20 bg-edu-bg px-3 py-2 text-sm text-edu-navy focus:border-edu-teal focus:outline-none">
               <option value="">All Batches</option>
-              {BATCH_OPTIONS.map((b) => (
-                <option key={b} value={b}>
-                  Batch {b}
-                </option>
-              ))}
+              {BATCH_OPTIONS.map((b) => <option key={b} value={b}>Batch {b}</option>)}
             </select>
           </div>
-
         </div>
       </div>
 
-      {/* Students Table */}
+      {/* Students table */}
       <div className="rounded-2xl border border-edu-blue/20 bg-white p-6 shadow-soft">
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold text-edu-navy">
             Students
-            {hasActiveFilters && <span className="ml-2 text-sm text-edu-blue">({filteredStudents.length} results)</span>}
+            {hasActiveFilters && (
+              <span className="ml-2 text-sm text-edu-blue">({filteredStudents.length} results)</span>
+            )}
           </h2>
-          <button
-            type="button"
-            onClick={loadAllStudents}
-            className="rounded-lg border border-edu-blue/20 px-3 py-1.5 text-xs font-semibold text-edu-navy hover:bg-edu-bg"
-          >
-            Refresh
-          </button>
+
+          <div className="flex items-center gap-2">
+            {/* Bulk delete button — only when items selected */}
+            {selectedIds.size > 0 && (
+              <button
+                type="button"
+                onClick={handleBulkDelete}
+                disabled={bulkDeleting}
+                className="flex items-center gap-1.5 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-red-600 disabled:opacity-60"
+              >
+                {bulkDeleting
+                  ? 'Deleting…'
+                  : `Delete Selected (${selectedIds.size})`}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={loadAllStudents}
+              className="rounded-lg border border-edu-blue/20 px-3 py-1.5 text-xs font-semibold text-edu-navy hover:bg-edu-bg"
+            >
+              Refresh
+            </button>
+          </div>
         </div>
 
         {loading ? (
@@ -267,10 +280,20 @@ export default function StudentManagementPage() {
             {hasActiveFilters ? 'No students match the current filters.' : 'No students found.'}
           </p>
         ) : (
-          <div className="w-full overflow-hidden">
+          <div className="w-full overflow-x-auto">
             <table className="w-full table-fixed text-xs sm:text-sm">
               <thead>
                 <tr className="border-b border-edu-blue/10 bg-edu-bg text-left">
+                  {/* Master checkbox */}
+                  <th className="w-10 px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={allOnPageSelected}
+                      onChange={toggleSelectAll}
+                      className="h-4 w-4 accent-edu-teal"
+                      title="Select all"
+                    />
+                  </th>
                   <th className="px-3 py-2 text-xs font-semibold uppercase text-edu-navy/60">Enrollment No.</th>
                   <th className="px-3 py-2 text-xs font-semibold uppercase text-edu-navy/60">Name</th>
                   <th className="px-3 py-2 text-xs font-semibold uppercase text-edu-navy/60">Email</th>
@@ -282,10 +305,26 @@ export default function StudentManagementPage() {
               </thead>
               <tbody>
                 {filteredStudents.map((student) => {
-                  const isEditing = editingStudentId === student.id
+                  const isEditing  = editingStudentId === student.id
+                  const isSelected = selectedIds.has(student.id)
                   return (
-                    <tr key={student.id} className="border-b border-edu-blue/10 align-top hover:bg-edu-bg/50">
-                      {/* Student ID */}
+                    <tr
+                      key={student.id}
+                      className={`border-b border-edu-blue/10 align-top transition-colors ${
+                        isSelected ? 'bg-edu-teal/5' : 'hover:bg-edu-bg/50'
+                      }`}
+                    >
+                      {/* Row checkbox */}
+                      <td className="px-3 py-2 align-middle">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelect(student.id)}
+                          className="h-4 w-4 accent-edu-teal"
+                        />
+                      </td>
+
+                      {/* Enrollment No. */}
                       <td className="px-2 py-2 align-top">
                         <span className="text-xs text-edu-navy/70">{student.student_id || '-'}</span>
                       </td>
@@ -293,13 +332,7 @@ export default function StudentManagementPage() {
                       {/* Name */}
                       <td className="px-2 py-2 align-top">
                         {isEditing ? (
-                          <input
-                            type="text"
-                            name="name"
-                            value={editForm.name}
-                            onChange={handleEditChange}
-                            className={cellInputCls}
-                          />
+                          <input type="text" name="name" value={editForm.name} onChange={handleEditChange} className={cellInputCls} />
                         ) : (
                           <span className="font-medium text-edu-navy">{student.name || '-'}</span>
                         )}
@@ -308,13 +341,7 @@ export default function StudentManagementPage() {
                       {/* Email */}
                       <td className="px-2 py-2 align-top break-all">
                         {isEditing ? (
-                          <input
-                            type="email"
-                            name="email"
-                            value={editForm.email}
-                            onChange={handleEditChange}
-                            className={cellInputCls}
-                          />
+                          <input type="email" name="email" value={editForm.email} onChange={handleEditChange} className={cellInputCls} />
                         ) : (
                           <span className="text-xs text-edu-navy/70">{student.email || '-'}</span>
                         )}
@@ -325,11 +352,7 @@ export default function StudentManagementPage() {
                         {isEditing ? (
                           <select name="branch" value={editForm.branch} onChange={handleEditChange} className={cellSelectCls}>
                             <option value="">—</option>
-                            {BRANCH_OPTIONS.map((b) => (
-                              <option key={b} value={b}>
-                                {b}
-                              </option>
-                            ))}
+                            {BRANCH_OPTIONS.map((b) => <option key={b} value={b}>{b}</option>)}
                           </select>
                         ) : (
                           <span className="text-xs text-edu-navy/70">{student.branch || '-'}</span>
@@ -341,11 +364,7 @@ export default function StudentManagementPage() {
                         {isEditing ? (
                           <select name="semester" value={editForm.semester} onChange={handleEditChange} className={cellSelectCls}>
                             <option value="">—</option>
-                            {SEMESTER_OPTIONS.map((s) => (
-                              <option key={s} value={String(s)}>
-                                {s}
-                              </option>
-                            ))}
+                            {SEMESTER_OPTIONS.map((s) => <option key={s} value={String(s)}>{s}</option>)}
                           </select>
                         ) : (
                           <span className="text-xs text-edu-navy/70">{student.semester || '-'}</span>
@@ -357,18 +376,12 @@ export default function StudentManagementPage() {
                         {isEditing ? (
                           <select name="batch" value={editForm.batch} onChange={handleEditChange} className={cellSelectCls}>
                             <option value="">—</option>
-                            {BATCH_OPTIONS.map((b) => (
-                              <option key={b} value={b}>
-                                {b}
-                              </option>
-                            ))}
+                            {BATCH_OPTIONS.map((b) => <option key={b} value={b}>{b}</option>)}
                           </select>
                         ) : (
                           <span className="text-xs text-edu-navy/70">{student.batch || '-'}</span>
                         )}
                       </td>
-
-
 
                       {/* Actions */}
                       <td className="px-2 py-2 align-top">
@@ -380,7 +393,7 @@ export default function StudentManagementPage() {
                               disabled={savingEdit}
                               className="rounded-md bg-edu-teal px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-60"
                             >
-                              {savingEdit ? 'Saving...' : 'Save'}
+                              {savingEdit ? 'Saving…' : 'Save'}
                             </button>
                             <button
                               type="button"
@@ -405,7 +418,7 @@ export default function StudentManagementPage() {
                               disabled={deletingId === student.id}
                               className="rounded-md bg-red-500 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-60"
                             >
-                              {deletingId === student.id ? 'Del...' : 'Delete'}
+                              {deletingId === student.id ? 'Del…' : 'Delete'}
                             </button>
                           </div>
                         )}
@@ -415,6 +428,32 @@ export default function StudentManagementPage() {
                 })}
               </tbody>
             </table>
+
+            {/* Selection summary bar */}
+            {selectedIds.size > 0 && (
+              <div className="mt-4 flex items-center justify-between rounded-xl border border-edu-teal/30 bg-edu-teal/5 px-4 py-2.5 text-sm">
+                <span className="font-medium text-edu-navy">
+                  {selectedIds.size} student{selectedIds.size > 1 ? 's' : ''} selected
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedIds(new Set())}
+                    className="text-xs font-medium text-edu-navy/60 hover:text-edu-navy"
+                  >
+                    Clear selection
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBulkDelete}
+                    disabled={bulkDeleting}
+                    className="rounded-lg bg-red-500 px-3 py-1 text-xs font-semibold text-white transition hover:bg-red-600 disabled:opacity-60"
+                  >
+                    {bulkDeleting ? 'Deleting…' : 'Delete Selected'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

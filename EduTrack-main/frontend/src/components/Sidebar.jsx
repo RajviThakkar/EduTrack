@@ -22,6 +22,7 @@ const adminLinks = [
 const studentLinks = [
   { label: 'Dashboard', to: '/student/dashboard' },
   { label: 'Attendance', to: '/student/attendance' },
+  { label: 'Predict Risk', to: '/student/predict-risk' },
   { label: 'Predict CGPA', to: '/student/predict-cgpa' },
 ]
 

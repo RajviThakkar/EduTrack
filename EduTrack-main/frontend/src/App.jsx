@@ -8,6 +8,7 @@ import AddStudent from './pages/AddStudent'
 import StudentDashboard from './pages/StudentDashboard'
 import Attendance from './pages/Attendance'
 import PredictCGPA from './pages/PredictCGPA'
+import StudentRiskPage from './pages/StudentRiskPage'
 import SignInPage from './pages/SignInPage'
 import SignUpPage from './pages/SignUpPage'
 import StudentManagementPage from './pages/StudentManagementPage'
@@ -72,6 +73,7 @@ function AppContent() {
       <Route path="/student/home" element={<Navigate to="/student/dashboard" replace />} />
       <Route path="/student/dashboard" element={<StudentDashboard />} />
       <Route path="/student/attendance" element={<Attendance />} />
+      <Route path="/student/predict-risk" element={<StudentRiskPage />} />
       <Route path="/student/predict-cgpa" element={<PredictCGPA />} />
 
       <Route path="*" element={<Navigate to="/" replace />} />

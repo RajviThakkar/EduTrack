@@ -12,8 +12,8 @@ const BASE_STUDENTS = [
 ]
 
 const ACCENT_COLORS = {
-  Quiz: '#2FA4A9',
-  Exam: '#4E98A2',
+  Quiz:       '#2FA4A9',
+  Exam:       '#4E98A2',
   Assignment: '#98B196',
   Practicals: '#215D87',
 }
@@ -29,81 +29,75 @@ function MarksSection({ type, mode = 'enter', initialData = null, records = [], 
   const [databaseStudents, setDatabaseStudents] = useState([])
   const [students, setStudents] = useState(initialData?.students ?? BASE_STUDENTS)
   const [marks, setMarks] = useState(
-    initialData?.marks || Object.fromEntries(BASE_STUDENTS.map((student) => [student.id, ''])),
+    initialData?.marks || Object.fromEntries(BASE_STUDENTS.map((s) => [s.id, ''])),
   )
   const [submitted, setSubmitted] = useState(false)
+  const [viewModeMarks, setViewModeMarks] = useState(null)
+  const [showResult, setShowResult] = useState(false)
+  const [viewLoading, setViewLoading] = useState(false)
 
+  // Enter mode needs branch + subject + semester; view mode only needs branch + semester
   const allSelected = branch && subject && semester
+  const viewReady = Boolean(branch && semester)
   const accent = ACCENT_COLORS[type] || '#2FA4A9'
 
-  // Fetch students from API on mount
+  // ── Load all students from API ─────────────────────────────────────────────
   useEffect(() => {
     const loadStudents = async () => {
       try {
         const response = await api.get('/api/students')
         const dbStudents = Array.isArray(response?.data)
-          ? response.data.map((student) => ({
-            id: String(student.student_id),
-            name: student.name || String(student.student_id),
-            branch: student.branch,
-            semester: String(student.semester || ''),
-          }))
+          ? response.data.map((s) => ({
+              id: String(s.student_id),
+              name: s.name || String(s.student_id),
+              branch: s.branch,
+              semester: String(s.semester || ''),
+            }))
           : []
-
         if (dbStudents.length > 0) {
           setDatabaseStudents(dbStudents)
           setStudents(dbStudents)
           setMarks((prev) => {
             const next = { ...prev }
-            dbStudents.forEach((student) => {
-              if (typeof next[student.id] === 'undefined') {
-                next[student.id] = ''
-              }
-            })
+            dbStudents.forEach((s) => { if (typeof next[s.id] === 'undefined') next[s.id] = '' })
             return next
           })
         }
-      } catch (_error) {
-        // Keep local students when API is unavailable
+      } catch {
+        // Keep local students when API unavailable
       }
     }
-
     loadStudents()
   }, [])
 
-  const [viewModeMarks, setViewModeMarks] = useState(null)
-  const [showResult, setShowResult] = useState(false)
-
-  const matchedRecord = useMemo(() => {
-    if (!isViewMode || sourceRecords.length === 0) return null
-
-    return [...sourceRecords].reverse().find((record) => {
-      if (branch && record.branch !== branch) return false
-      if (subject && record.subject !== subject) return false
-      if (semester && record.semester !== semester) return false
-      return true
-    }) || null
-  }, [isViewMode, sourceRecords, branch, subject, semester])
-
+  // Reset view result when filters change
   useEffect(() => {
     if (!isViewMode) return
     setShowResult(false)
+    setViewModeMarks(null)
   }, [branch, subject, semester, isViewMode])
 
-  // Fetch marks from backend when viewing
+  // ── Fetch marks from backend in view mode ──────────────────────────────────
   useEffect(() => {
     if (!isViewMode || !showResult || databaseStudents.length === 0) {
-      setViewModeMarks(null)
+      if (!showResult) setViewModeMarks(null)
       return
     }
 
     const fetchViewModeMarks = async () => {
+      setViewLoading(true)
       try {
+        // Fetch all students in the selected semester
+        const semesterStudents = databaseStudents.filter(
+          (s) => !semester || String(s.semester || '') === String(semester),
+        )
+        const targetStudents = semesterStudents.length > 0 ? semesterStudents : databaseStudents
+
         const allMarksData = await Promise.all(
-          databaseStudents.map(async (student) => {
+          targetStudents.map(async (student) => {
             try {
-              const marksRes = await api.get(`/api/marks/${student.id}`)
-              return Array.isArray(marksRes.data) ? marksRes.data : []
+              const res = await api.get(`/api/marks/${student.id}`)
+              return Array.isArray(res.data) ? res.data : []
             } catch {
               return []
             }
@@ -111,32 +105,43 @@ function MarksSection({ type, mode = 'enter', initialData = null, records = [], 
         )
 
         const flattened = allMarksData.flat()
-        const normalizedSubject = String(subject || '').trim().toLowerCase()
         const normalizedType = type.toLowerCase()
-        const forSubjectAndType = flattened.filter(
-          (rec) =>
-            String(rec?.subject || '').trim().toLowerCase() === normalizedSubject &&
-            String(rec?.type || '').trim().toLowerCase() === normalizedType,
-        )
 
+        // Filter by type only (subject is optional)
+        const forType = subject
+          ? flattened.filter(
+              (rec) =>
+                String(rec?.type || '').trim().toLowerCase() === normalizedType &&
+                String(rec?.subject || '').trim().toLowerCase() === subject.toLowerCase(),
+            )
+          : flattened.filter(
+              (rec) => String(rec?.type || '').trim().toLowerCase() === normalizedType,
+            )
+
+        // Take latest marks per student (if multiple records exist)
         const marksById = {}
-        forSubjectAndType.forEach((rec) => {
+        forType.forEach((rec) => {
           const studentId = String(rec?.student_id || '').trim()
           if (studentId) {
-            marksById[studentId] = rec?.marks || 0
+            // Keep highest or latest — use latest stored
+            if (marksById[studentId] === undefined) {
+              marksById[studentId] = rec?.marks ?? null
+            }
           }
         })
 
         setViewModeMarks(marksById)
-      } catch (_error) {
+      } catch {
         setViewModeMarks({})
+      } finally {
+        setViewLoading(false)
       }
     }
 
     fetchViewModeMarks()
-  }, [isViewMode, showResult, databaseStudents, subject, type])
+  }, [isViewMode, showResult, databaseStudents, subject, semester, type])
 
-  // Only show students matching the selected semester (in enter mode)
+  // ── Semester-filtered student list (enter mode) ────────────────────────────
   const filteredStudents = useMemo(() => {
     if (!semester) return databaseStudents.length > 0 ? databaseStudents : students
     const target = String(semester)
@@ -145,38 +150,30 @@ function MarksSection({ type, mode = 'enter', initialData = null, records = [], 
     return filtered.length > 0 ? filtered : pool
   }, [databaseStudents, students, semester])
 
+  // In view mode: show semester-filtered DB students; in enter mode: semester-filtered list
   const displayedStudents = isViewMode && showResult
     ? (databaseStudents.length > 0 ? databaseStudents : students).filter(
-      (s) => !semester || String(s.semester || '') === String(semester)
-    )
+        (s) => !semester || String(s.semester || '') === String(semester),
+      )
     : filteredStudents
-  const displayedMarks = isViewMode && viewModeMarks ? viewModeMarks : (isViewMode ? matchedRecord?.marks || {} : marks)
-  const displayedOutOfMarks = isViewMode ? matchedRecord?.outOfMarks ?? '' : outOfMarks
+
+  const displayedMarks = isViewMode && viewModeMarks ? viewModeMarks : (isViewMode ? {} : marks)
   const shouldShowTable = isViewMode ? showResult : allSelected
 
   const handleChange = (id, value) => {
     if (isViewMode) return
-    if (value === '' || (Number(value) >= 0 && Number(value) <= 100)) {
-      setMarks((prev) => ({ ...prev, [id]: value }))
-    }
+    setMarks((prev) => ({ ...prev, [id]: value }))
   }
 
   const handleNameChange = (id, value) => {
     if (isViewMode) return
-    setStudents((prev) => prev.map((student) => (student.id === id ? { ...student, name: value } : student)))
+    setStudents((prev) => prev.map((s) => (s.id === id ? { ...s, name: value } : s)))
   }
 
   const handleSubmit = () => {
     if (!allSelected || isViewMode) return
     if (onSubmitData) {
-      onSubmitData({
-        branch,
-        subject,
-        semester,
-        outOfMarks,
-        students,
-        marks,
-      })
+      onSubmitData({ branch, subject, semester, outOfMarks, students: filteredStudents, marks })
     }
     setSubmitted(true)
     setTimeout(() => setSubmitted(false), 2500)
@@ -189,10 +186,7 @@ function MarksSection({ type, mode = 'enter', initialData = null, records = [], 
     <div className="rounded-2xl bg-white p-6 shadow-md">
       <div
         className={`flex items-center justify-between ${isViewMode ? '' : 'cursor-pointer'}`}
-        onClick={() => {
-          if (isViewMode) return
-          setOpen((prev) => !prev)
-        }}
+        onClick={() => { if (isViewMode) return; setOpen((p) => !p) }}
       >
         <div className="flex items-center gap-3">
           <div className="h-8 w-1.5 rounded-full" style={{ backgroundColor: accent }} />
@@ -203,10 +197,7 @@ function MarksSection({ type, mode = 'enter', initialData = null, records = [], 
             type="button"
             className="flex h-8 w-8 items-center justify-center rounded-full text-xl font-bold text-white transition hover:opacity-80"
             style={{ backgroundColor: accent }}
-            onClick={(event) => {
-              event.stopPropagation()
-              setOpen((prev) => !prev)
-            }}
+            onClick={(e) => { e.stopPropagation(); setOpen((p) => !p) }}
           >
             {open ? '−' : '+'}
           </button>
@@ -215,47 +206,39 @@ function MarksSection({ type, mode = 'enter', initialData = null, records = [], 
 
       {!open ? null : (
         <>
+          {/* Filters */}
           <div className="mb-5 mt-5 grid gap-3 sm:grid-cols-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-edu-blue">Branch</label>
-              <select className={selectClass} value={branch} onChange={(event) => setBranch(event.target.value)}>
+              <select className={selectClass} value={branch} onChange={(e) => setBranch(e.target.value)}>
                 <option value="">Select Branch</option>
-                {BRANCH_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
+                {BRANCH_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-edu-blue">Subject</label>
-              <select className={selectClass} value={subject} onChange={(event) => setSubject(event.target.value)}>
+              <label className="mb-1 block text-xs font-medium text-edu-blue">
+                Subject {isViewMode && <span className="text-edu-navy/40">(optional)</span>}
+              </label>
+              <select className={selectClass} value={subject} onChange={(e) => setSubject(e.target.value)}>
                 <option value="">Select Subject</option>
-                {SUBJECT_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
+                {SUBJECT_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
               </select>
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-edu-blue">Semester</label>
-              <select className={selectClass} value={semester} onChange={(event) => setSemester(event.target.value)}>
+              <select className={selectClass} value={semester} onChange={(e) => setSemester(e.target.value)}>
                 <option value="">Select Semester</option>
-                {SEMESTER_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    Sem {option}
-                  </option>
-                ))}
+                {SEMESTER_OPTIONS.map((o) => <option key={o} value={o}>Sem {o}</option>)}
               </select>
             </div>
           </div>
 
-          {isViewMode && branch && subject && semester && (
+          {/* Show button — view mode, enabled with just branch + semester */}
+          {isViewMode && viewReady && (
             <div className="mb-5 flex gap-3">
               <button
                 type="button"
-                onClick={() => setShowResult(!showResult)}
+                onClick={() => setShowResult((p) => !p)}
                 className="rounded-xl px-6 py-2.5 text-sm font-semibold text-white transition hover:opacity-85"
                 style={{ backgroundColor: accent }}
               >
@@ -264,42 +247,46 @@ function MarksSection({ type, mode = 'enter', initialData = null, records = [], 
             </div>
           )}
 
+          {/* Bulk import — enter mode */}
           {!isViewMode && allSelected && (
             <BulkStudentImportPanel
               title={`Bulk Student Import for ${type}`}
               className="mb-5"
-              importDefaults={{
-                branch: branch || 'General',
-                semester: semester || 1,
-                batch: 'A',
-                counsellor_name: 'Unassigned',
-              }}
+              importDefaults={{ branch: branch || 'General', semester: semester || 1, batch: 'A', counsellor_name: 'Unassigned' }}
               onImported={onStudentsImported}
             />
           )}
 
-          {!shouldShowTable ? (
+          {/* Loading */}
+          {viewLoading && (
+            <div className="rounded-xl border border-edu-blue/10 bg-edu-sand/20 p-4 text-center text-sm text-edu-blue">
+              Loading {type.toLowerCase()} data…
+            </div>
+          )}
+
+          {/* Empty state */}
+          {!shouldShowTable && !viewLoading ? (
             <div className="rounded-xl border border-dashed border-edu-blue/30 bg-edu-sand/20 p-6 text-center text-sm text-edu-blue">
               {isViewMode
-                ? sourceRecords.length === 0
-                  ? `No uploaded ${type.toLowerCase()} data found yet. You can still set filters and then add records from Enter Student Data.`
-                  : `No ${type.toLowerCase()} record matches the selected filters.`
+                ? 'Select Branch and Semester then click Show.'
                 : 'Select Branch, Subject, and Semester to view the student list.'}
             </div>
-          ) : (
+          ) : shouldShowTable && !viewLoading ? (
             <>
-              <div className="mb-5">
-                <label className="mb-2 block text-sm font-medium text-edu-navy">Out of Marks</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={displayedOutOfMarks}
-                  onChange={(event) => setOutOfMarks(event.target.value.replace(/[^0-9]/g, ''))}
-                  placeholder="e.g., 100"
-                  disabled={isViewMode}
-                  className="w-full max-w-xs rounded-xl border border-edu-blue/20 bg-white px-3 py-2.5 text-sm text-edu-navy outline-none transition focus:border-edu-teal focus:ring-2 focus:ring-edu-teal/25"
-                />
-              </div>
+              {/* Out of Marks — only in enter mode */}
+              {!isViewMode && (
+                <div className="mb-5">
+                  <label className="mb-2 block text-sm font-medium text-edu-navy">Out of Marks</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={outOfMarks}
+                    onChange={(e) => setOutOfMarks(e.target.value.replace(/[^0-9]/g, ''))}
+                    placeholder="e.g., 100"
+                    className="w-full max-w-xs rounded-xl border border-edu-blue/20 bg-white px-3 py-2.5 text-sm text-edu-navy outline-none transition focus:border-edu-teal focus:ring-2 focus:ring-edu-teal/25"
+                  />
+                </div>
+              )}
 
               <div className="overflow-x-auto rounded-xl border border-edu-blue/10">
                 <table className="w-full min-w-[360px] text-sm">
@@ -308,7 +295,7 @@ function MarksSection({ type, mode = 'enter', initialData = null, records = [], 
                       <th className="px-5 py-3 font-semibold text-edu-navy">Student ID</th>
                       <th className="px-5 py-3 font-semibold text-edu-navy">Student Name</th>
                       <th className="px-5 py-3 font-semibold text-edu-navy">
-                        Marks {displayedOutOfMarks ? `(out of ${displayedOutOfMarks})` : '(out of 100)'}
+                        {isViewMode ? 'Marks' : `Marks${outOfMarks ? ` (out of ${outOfMarks})` : ' (out of 100)'}`}
                       </th>
                     </tr>
                   </thead>
@@ -324,7 +311,7 @@ function MarksSection({ type, mode = 'enter', initialData = null, records = [], 
                             <input
                               type="text"
                               value={student.name}
-                              onChange={(event) => handleNameChange(student.id, event.target.value)}
+                              onChange={(e) => handleNameChange(student.id, e.target.value)}
                               placeholder="Enter name"
                               className="w-40 rounded-lg border border-edu-blue/20 bg-white px-3 py-1.5 text-sm text-edu-navy outline-none transition focus:border-edu-teal focus:ring-2 focus:ring-edu-teal/25"
                             />
@@ -335,7 +322,9 @@ function MarksSection({ type, mode = 'enter', initialData = null, records = [], 
                         <td className="px-5 py-3">
                           {isViewMode ? (
                             <span className="font-medium text-edu-navy">
-                              {displayedMarks[student.id] === '' || displayedMarks[student.id] === undefined
+                              {displayedMarks[student.id] === '' ||
+                              displayedMarks[student.id] === undefined ||
+                              displayedMarks[student.id] === null
                                 ? '—'
                                 : displayedMarks[student.id]}
                             </span>
@@ -344,7 +333,7 @@ function MarksSection({ type, mode = 'enter', initialData = null, records = [], 
                               type="text"
                               inputMode="numeric"
                               value={displayedMarks[student.id] ?? ''}
-                              onChange={(event) => handleChange(student.id, event.target.value.replace(/[^0-9]/g, ''))}
+                              onChange={(e) => handleChange(student.id, e.target.value.replace(/[^0-9]/g, ''))}
                               placeholder="Enter marks"
                               className="w-36 rounded-lg border border-edu-blue/20 bg-white px-3 py-1.5 text-sm text-edu-navy outline-none transition focus:border-edu-teal focus:ring-2 focus:ring-edu-teal/25"
                             />
@@ -352,6 +341,13 @@ function MarksSection({ type, mode = 'enter', initialData = null, records = [], 
                         </td>
                       </tr>
                     ))}
+                    {displayedStudents.length === 0 && (
+                      <tr>
+                        <td colSpan="3" className="px-5 py-6 text-center text-sm text-edu-blue/60">
+                          No students found for the selected semester.
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -372,7 +368,7 @@ function MarksSection({ type, mode = 'enter', initialData = null, records = [], 
                 </div>
               )}
             </>
-          )}
+          ) : null}
         </>
       )}
     </div>

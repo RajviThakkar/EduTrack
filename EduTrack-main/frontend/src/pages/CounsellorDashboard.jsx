@@ -50,9 +50,7 @@ export default function CounsellorDashboard() {
     <div className="space-y-8">
       {/* Welcome banner */}
       <div className="rounded-2xl bg-gradient-to-r from-edu-navy to-edu-blue px-7 py-6 text-white shadow-soft">
-        <p className="text-sm font-medium tracking-wide uppercase opacity-75">Welcome back</p>
-        <h1 className="mt-1 text-2xl font-bold sm:text-3xl">{counsellorName}</h1>
-        <p className="mt-1 text-sm text-white/70">Counsellor Portal — EduTrack</p>
+        <h1 className="text-2xl font-bold sm:text-3xl">Welcome, {counsellorName}</h1>
       </div>
 
       {/* Stats row */}

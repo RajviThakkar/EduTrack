@@ -139,8 +139,8 @@ function SignInPage() {
           <p className="text-xs text-edu-blue">Demo Credentials:</p>
           <p className="text-xs text-gray-600">
             {selectedRole === 'faculty' && 'Faculty: RAJVII@GMAIL.COM / RAJVII123'}
-            {selectedRole === 'student' && 'Student: 12402130503007@gcet.ac.in / 12402130503007@123'}
-            {selectedRole === 'admin' && 'Admin: RAJVEE@gmail.com / RAJVEE123'}
+            {selectedRole === 'student' && 'Student: 12402130503007@gcet.ac.in / student123'}
+            {selectedRole === 'admin' && 'Admin: RAJVEE@GMAIL.COM / RAJVEE123'}
           </p>
         </div>
 

@@ -11,64 +11,58 @@ const DUMMY_STUDENTS = [
   { id: '105', name: 'Arjun Nair' },
 ]
 
+const todayStr = () => new Date().toISOString().slice(0, 10)
+
 function AttendanceSection({ mode = 'enter', initialData = null, records = [], onSubmitData, onStudentsImported }) {
   const isViewMode = mode === 'view'
   const sourceRecords = records.length > 0 ? records : initialData ? [initialData] : []
+
   const [open, setOpen] = useState(isViewMode)
   const [branch, setBranch] = useState(isViewMode ? '' : initialData?.branch ?? '')
   const [subject, setSubject] = useState(isViewMode ? '' : initialData?.subject ?? '')
   const [semester, setSemester] = useState(isViewMode ? '' : initialData?.semester ?? '')
   const [sessionType, setSessionType] = useState(isViewMode ? '' : initialData?.sessionType ?? '')
   const [batch, setBatch] = useState(isViewMode ? '' : initialData?.batch ?? '')
+  const [date, setDate] = useState(initialData?.date ?? todayStr())
   const [attendance, setAttendance] = useState(
-    initialData?.attendance || Object.fromEntries(DUMMY_STUDENTS.map((student) => [student.id, false])),
+    initialData?.attendance || Object.fromEntries(DUMMY_STUDENTS.map((s) => [s.id, false])),
   )
   const [submitted, setSubmitted] = useState(false)
   const [enterStudents, setEnterStudents] = useState(initialData?.students || DUMMY_STUDENTS)
   const [showResult, setShowResult] = useState(false)
   const [viewModeData, setViewModeData] = useState(null)
   const [allPresent, setAllPresent] = useState(false)
+  const [viewLoading, setViewLoading] = useState(false)
 
   const isLecture = sessionType === 'Lecture'
+  // Enter mode: all 4 fields required (+ batch for lab)
   const classFilterReady = branch && subject && semester && sessionType && (isLecture || batch)
+  // View mode: only branch + semester + sessionType required
+  const viewFilterReady = Boolean(branch && semester && sessionType)
 
   const classStudents = useMemo(() => {
     return (enterStudents || []).filter((student) => {
       const studentBranch = String(student.branch || '').toUpperCase()
       const studentSemester = String(student.semester || '')
       const studentBatch = String(student.batch || '').toUpperCase()
-
       const branchMatch = !branch || studentBranch === String(branch).toUpperCase()
       const semesterMatch = !semester || studentSemester === String(semester)
       const batchMatch = isLecture || !batch || studentBatch === String(batch).toUpperCase()
-
       return branchMatch && semesterMatch && batchMatch
     })
   }, [enterStudents, branch, semester, batch, isLecture])
-  const matchedRecord = useMemo(() => {
-    if (!isViewMode || sourceRecords.length === 0) return null
 
-    return [...sourceRecords].reverse().find((record) => {
-      if (sessionType && record.sessionType !== sessionType) return false
-      if (branch && record.branch !== branch) return false
-      if (subject && record.subject !== subject) return false
-      if (semester && record.semester !== semester) return false
-      if (sessionType === 'Lab' && batch && record.batch !== batch) return false
-      return true
-    }) || null
-  }, [isViewMode, sourceRecords, sessionType, branch, subject, semester, batch])
+  const students = isViewMode ? (viewModeData?.students || []) : classStudents
+  // In view mode: avgAttendance map; in enter mode: boolean map
+  const displayedAttendance = isViewMode ? (viewModeData?.avgAttendance || {}) : attendance
+  const shouldShowTable = isViewMode ? showResult && viewModeData !== null : classFilterReady
 
-  const students = isViewMode ? viewModeData?.students || [] : classStudents
-  const displayedAttendance = isViewMode ? viewModeData?.attendance || {} : attendance
-  const shouldShowTable = isViewMode ? showResult && Boolean(viewModeData) : classFilterReady
-
+  // ── Toggle individual student (enter mode) ──────────────────────────────────
   const toggle = (id) => {
     if (isViewMode) return
     setAttendance((prev) => {
       const next = { ...prev, [id]: !prev[id] }
-      // Sync allPresent flag
-      const allArePresent = students.every((s) => next[s.id])
-      setAllPresent(allArePresent)
+      setAllPresent(students.every((s) => next[s.id]))
       return next
     })
   }
@@ -84,133 +78,113 @@ function AttendanceSection({ mode = 'enter', initialData = null, records = [], o
     })
   }
 
+  // ── Load students from API ──────────────────────────────────────────────────
   useEffect(() => {
     const loadStudents = async () => {
       try {
         const response = await api.get('/api/students')
         const dbStudents = Array.isArray(response?.data)
           ? response.data.map((student) => ({
-            id: String(student.student_id),
-            name: student.name || String(student.student_id),
-            branch: student.branch,
-            semester: String(student.semester || ''),
-            batch: student.batch,
-          }))
+              id: String(student.student_id),
+              name: student.name || String(student.student_id),
+              branch: student.branch,
+              semester: String(student.semester || ''),
+              batch: student.batch,
+            }))
           : []
-
         if (dbStudents.length === 0) return
-
         setEnterStudents(dbStudents)
-
         if (!isViewMode) {
           setAttendance((prev) => {
             const next = { ...prev }
-            dbStudents.forEach((student) => {
-              if (typeof next[student.id] === 'undefined') {
-                next[student.id] = false
-              }
+            dbStudents.forEach((s) => {
+              if (typeof next[s.id] === 'undefined') next[s.id] = false
             })
             return next
           })
         }
-      } catch (_error) {
-        // Keep local dummy students when API is unavailable.
+      } catch {
+        // Keep dummy students when API unavailable
       }
     }
-
     loadStudents()
   }, [isViewMode])
 
+  // Reset on filter change
   useEffect(() => {
     if (!isViewMode) return
     setShowResult(false)
+    setViewModeData(null)
   }, [branch, subject, semester, sessionType, batch, isViewMode])
 
-  // Fetch attendance from backend when "Show" is clicked in view mode
+  // Reset allPresent when student list changes
+  useEffect(() => {
+    if (!isViewMode) setAllPresent(false)
+  }, [classStudents, isViewMode])
+
+  // ── Fetch view mode data: avg attendance per student ────────────────────────
   useEffect(() => {
     if (!isViewMode || !showResult || classStudents.length === 0) {
-      setViewModeData(null)
+      if (!showResult) setViewModeData(null)
       return
     }
 
     const fetchViewModeData = async () => {
+      setViewLoading(true)
       try {
         const allAttendance = await Promise.all(
           classStudents.map(async (student) => {
             try {
-              const attRes = await api.get(`/api/attendance/${student.id}`)
-              return Array.isArray(attRes.data) ? attRes.data : []
+              const res = await api.get(`/api/attendance/${student.id}`)
+              return { id: student.id, records: Array.isArray(res.data) ? res.data : [] }
             } catch {
-              return []
+              return { id: student.id, records: [] }
             }
           }),
         )
 
-        const flattened = allAttendance.flat()
-        const normalizedSubject = String(subject || '').trim().toLowerCase()
-        const forSubject = flattened.filter(
-          (rec) => String(rec?.subject || '').trim().toLowerCase() === normalizedSubject,
-        )
+        const avgAttendance = {}
+        allAttendance.forEach(({ id, records }) => {
+          // Optionally filter by subject if one is selected
+          const relevant = subject
+            ? records.filter(
+                (r) => String(r?.subject || '').trim().toLowerCase() === subject.toLowerCase(),
+              )
+            : records
 
-        const latestByStudent = {}
-        forSubject.forEach((rec) => {
-          const studentId = String(rec?.student_id || '').trim()
-          if (!studentId) return
-
-          const recDate = String(rec?.date || '')
-          const statusNormalized = String(rec?.status || '').trim().toLowerCase()
-          const isPresent = statusNormalized === 'present'
-
-          const current = latestByStudent[studentId]
-          if (!current || recDate >= current.date) {
-            latestByStudent[studentId] = { date: recDate, isPresent }
+          if (relevant.length === 0) {
+            avgAttendance[id] = null // no data
+          } else {
+            const presentCount = relevant.filter(
+              (r) => String(r?.status || '').trim().toLowerCase() === 'present',
+            ).length
+            avgAttendance[id] = Math.round((presentCount / relevant.length) * 100)
           }
         })
 
-        const attendanceByStudent = Object.fromEntries(
-          Object.entries(latestByStudent).map(([studentId, data]) => [studentId, data.isPresent]),
-        )
-
-        setViewModeData({
-          subject,
-          sessionType,
-          branch,
-          semester,
-          batch,
-          students: classStudents,
-          attendance: attendanceByStudent,
-        })
-      } catch (_err) {
-        setViewModeData(null)
+        setViewModeData({ students: classStudents, avgAttendance })
+      } catch {
+        setViewModeData({ students: classStudents, avgAttendance: {} })
+      } finally {
+        setViewLoading(false)
       }
     }
 
     fetchViewModeData()
-  }, [isViewMode, showResult, classStudents, subject, sessionType, branch, semester, batch])
+  }, [isViewMode, showResult, classStudents, subject])
 
+  // ── Submit attendance (enter mode) ──────────────────────────────────────────
   const handleSubmit = async () => {
     if (!classFilterReady || isViewMode) return
     if (classStudents.length === 0) {
       alert('No students found for selected class.')
       return
     }
-
     if (onSubmitData) {
       try {
-        await onSubmitData({
-          branch,
-          subject,
-          semester,
-          sessionType,
-          batch,
-          attendance,
-          students: classStudents,
-        })
+        await onSubmitData({ branch, subject, semester, sessionType, batch, date, attendance, students: classStudents })
       } catch (error) {
-        const message =
-          error?.response?.data?.error ||
-          'Failed to save attendance. Please verify backend and student records.'
-        alert(message)
+        alert(error?.response?.data?.error || 'Failed to save attendance.')
         return
       }
     }
@@ -222,10 +196,10 @@ function AttendanceSection({ mode = 'enter', initialData = null, records = [], o
     'w-full rounded-xl border border-edu-blue/20 bg-white px-3 py-2.5 text-sm text-edu-navy outline-none transition focus:border-edu-teal focus:ring-2 focus:ring-edu-teal/25'
 
   const normalizePresentFlag = (value) => {
-    const normalized = String(value || '').trim().toLowerCase()
-    if (!normalized) return null
-    if (['1', 'true', 'present', 'yes', 'y', 'p'].includes(normalized)) return 'Present'
-    if (['0', 'false', 'absent', 'no', 'n', 'a'].includes(normalized)) return 'Absent'
+    const n = String(value || '').trim().toLowerCase()
+    if (!n) return null
+    if (['1', 'true', 'present', 'yes', 'y', 'p'].includes(n)) return 'Present'
+    if (['0', 'false', 'absent', 'no', 'n', 'a'].includes(n)) return 'Absent'
     return null
   }
 
@@ -233,50 +207,40 @@ function AttendanceSection({ mode = 'enter', initialData = null, records = [], o
     if (!classFilterReady || !subject) {
       return { message: 'Select Type/Branch/Subject/Semester first to also save attendance statuses.' }
     }
-
     let existingStudentIds = new Set()
     try {
       const studentsRes = await api.get('/api/students')
-      const existingStudents = Array.isArray(studentsRes?.data) ? studentsRes.data : []
-      existingStudentIds = new Set(existingStudents.map((student) => String(student.student_id || '').trim()))
+      existingStudentIds = new Set(
+        (Array.isArray(studentsRes?.data) ? studentsRes.data : []).map((s) =>
+          String(s.student_id || '').trim(),
+        ),
+      )
     } catch {
       return { message: 'Could not verify existing students. Attendance import skipped.' }
     }
-
     const studentsWithFlags = (parsed?.students || [])
-      .filter((student) => normalizePresentFlag(student.present_flag) !== null)
-      .filter((student) => existingStudentIds.has(String(student.student_id || '').trim()))
-
+      .filter((s) => normalizePresentFlag(s.present_flag) !== null)
+      .filter((s) => existingStudentIds.has(String(s.student_id || '').trim()))
     const missingStudents = (parsed?.students || [])
-      .filter((student) => normalizePresentFlag(student.present_flag) !== null)
-      .filter((student) => !existingStudentIds.has(String(student.student_id || '').trim()))
-
+      .filter((s) => normalizePresentFlag(s.present_flag) !== null)
+      .filter((s) => !existingStudentIds.has(String(s.student_id || '').trim()))
     if (studentsWithFlags.length === 0) {
       return {
-        message: 'No attendance rows were saved because matching existing student IDs were not found.',
-        errors: missingStudents.slice(0, 5).map((student) => ({
-          row: '-',
-          error: `Student not found: ${student.student_id}`,
-        })),
+        message: 'No attendance rows were saved — no matching student IDs found.',
+        errors: missingStudents.slice(0, 5).map((s) => ({ row: '-', error: `Student not found: ${s.student_id}` })),
       }
     }
-
-    const today = new Date().toISOString().slice(0, 10)
-    const attendanceEntries = studentsWithFlags.map((student) => ({
-      student_id: String(student.student_id),
+    const entries = studentsWithFlags.map((s) => ({
+      student_id: String(s.student_id),
       subject,
-      date: today,
-      status: normalizePresentFlag(student.present_flag),
+      date,
+      status: normalizePresentFlag(s.present_flag),
     }))
-
     try {
-      await api.post('/api/attendance', { attendance: attendanceEntries })
+      await api.post('/api/attendance', { attendance: entries })
       return {
-        message: `${attendanceEntries.length} attendance rows were saved for subject ${subject}.`,
-        errors: missingStudents.slice(0, 5).map((student) => ({
-          row: '-',
-          error: `Skipped unknown student ID: ${student.student_id}`,
-        })),
+        message: `${entries.length} attendance rows saved for subject ${subject}.`,
+        errors: missingStudents.slice(0, 5).map((s) => ({ row: '-', error: `Skipped unknown ID: ${s.student_id}` })),
       }
     } catch {
       return { message: 'Attendance rows could not be saved.' }
@@ -287,10 +251,7 @@ function AttendanceSection({ mode = 'enter', initialData = null, records = [], o
     <div className="rounded-2xl bg-white p-6 shadow-md">
       <div
         className={`flex items-center justify-between ${isViewMode ? '' : 'cursor-pointer'}`}
-        onClick={() => {
-          if (isViewMode) return
-          setOpen((prev) => !prev)
-        }}
+        onClick={() => { if (isViewMode) return; setOpen((p) => !p) }}
       >
         <div className="flex items-center gap-3">
           <div className="h-8 w-1.5 rounded-full bg-[#2FA4A9]" />
@@ -300,10 +261,7 @@ function AttendanceSection({ mode = 'enter', initialData = null, records = [], o
           <button
             type="button"
             className="flex h-8 w-8 items-center justify-center rounded-full bg-[#2FA4A9] text-xl font-bold text-white transition hover:bg-edu-navy"
-            onClick={(event) => {
-              event.stopPropagation()
-              setOpen((prev) => !prev)
-            }}
+            onClick={(e) => { e.stopPropagation(); setOpen((p) => !p) }}
           >
             {open ? '−' : '+'}
           </button>
@@ -312,35 +270,24 @@ function AttendanceSection({ mode = 'enter', initialData = null, records = [], o
 
       {!open ? null : (
         <>
+          {/* Session Type toggle */}
           <div className="mb-5 mt-5">
             <label className="mb-2 block text-xs font-medium text-edu-blue">Type</label>
             <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setSessionType('Lecture')
-                  setBatch('')
-                }}
-                className={`flex-1 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${sessionType === 'Lecture'
-                    ? 'bg-[#2FA4A9] text-white'
-                    : 'border border-edu-blue/20 bg-white text-edu-navy hover:border-edu-teal'
+              {['Lecture', 'Lab'].map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => { setSessionType(type); setBatch('') }}
+                  className={`flex-1 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${
+                    sessionType === type
+                      ? 'bg-[#2FA4A9] text-white'
+                      : 'border border-edu-blue/20 bg-white text-edu-navy hover:border-edu-teal'
                   }`}
-              >
-                Lecture
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSessionType('Lab')
-                  setBatch('')
-                }}
-                className={`flex-1 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${sessionType === 'Lab'
-                    ? 'bg-[#2FA4A9] text-white'
-                    : 'border border-edu-blue/20 bg-white text-edu-navy hover:border-edu-teal'
-                  }`}
-              >
-                Lab
-              </button>
+                >
+                  {type}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -350,79 +297,77 @@ function AttendanceSection({ mode = 'enter', initialData = null, records = [], o
             </div>
           )}
 
+          {/* Filters */}
           {sessionType && (
-            <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className={`mb-5 grid gap-3 sm:grid-cols-2 ${!isLecture ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}>
               <div>
                 <label className="mb-1 block text-xs font-medium text-edu-blue">Branch</label>
-                <select className={selectClass} value={branch} onChange={(event) => setBranch(event.target.value)}>
+                <select className={selectClass} value={branch} onChange={(e) => setBranch(e.target.value)}>
                   <option value="">Select Branch</option>
-                  {BRANCH_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
+                  {BRANCH_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
                 </select>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-edu-blue">Subject</label>
-                <select className={selectClass} value={subject} onChange={(event) => setSubject(event.target.value)}>
+                <label className="mb-1 block text-xs font-medium text-edu-blue">
+                  Subject {isViewMode && <span className="text-edu-navy/40">(optional)</span>}
+                </label>
+                <select className={selectClass} value={subject} onChange={(e) => setSubject(e.target.value)}>
                   <option value="">Select Subject</option>
-                  {SUBJECT_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
+                  {SUBJECT_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
                 </select>
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-edu-blue">Semester</label>
-                <select className={selectClass} value={semester} onChange={(event) => setSemester(event.target.value)}>
+                <select className={selectClass} value={semester} onChange={(e) => setSemester(e.target.value)}>
                   <option value="">Select Semester</option>
-                  {SEMESTER_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      Sem {option}
-                    </option>
-                  ))}
+                  {SEMESTER_OPTIONS.map((o) => <option key={o} value={o}>Sem {o}</option>)}
                 </select>
               </div>
               {!isLecture && (
                 <div>
                   <label className="mb-1 block text-xs font-medium text-edu-blue">Batch</label>
-                  <select className={selectClass} value={batch} onChange={(event) => setBatch(event.target.value)}>
+                  <select className={selectClass} value={batch} onChange={(e) => setBatch(e.target.value)}>
                     <option value="">Select Batch</option>
-                    {BATCH_OPTIONS.map((option) => (
-                      <option key={option} value={option}>
-                        Batch {option}
-                      </option>
-                    ))}
+                    {BATCH_OPTIONS.map((o) => <option key={o} value={o}>Batch {o}</option>)}
                   </select>
                 </div>
               )}
             </div>
           )}
 
+          {/* Date picker — enter mode, visible as soon as session type is chosen */}
+          {!isViewMode && sessionType && (
+            <div className="mb-5">
+              <label className="mb-1 block text-xs font-medium text-edu-blue">Date</label>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                max={todayStr()}
+                className={`${selectClass} max-w-xs`}
+              />
+            </div>
+          )}
+
+          {/* Bulk import — enter mode */}
           {!isViewMode && sessionType && classFilterReady && (
             <BulkStudentImportPanel
               title="Bulk Student Import"
               className="mb-5"
-              importDefaults={{
-                branch: branch || 'General',
-                semester: semester || 1,
-                batch: batch || 'A',
-                counsellor_name: 'Unassigned',
-              }}
+              importDefaults={{ branch: branch || 'General', semester: semester || 1, batch: batch || 'A', counsellor_name: 'Unassigned' }}
               skipStudentCreation
               onAfterImport={handleAttendanceImportAfterBulk}
               onImported={onStudentsImported}
             />
           )}
 
+          {/* Show button — view mode */}
           {isViewMode && sessionType && (
             <div className="mb-5">
               <button
                 type="button"
                 onClick={() => setShowResult(true)}
-                disabled={!classFilterReady}
+                disabled={!viewFilterReady}
                 className="rounded-xl bg-[#2FA4A9] px-5 py-2.5 text-sm font-semibold text-white transition enabled:hover:bg-edu-navy disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Show
@@ -430,15 +375,23 @@ function AttendanceSection({ mode = 'enter', initialData = null, records = [], o
             </div>
           )}
 
-          {sessionType && !shouldShowTable ? (
+          {/* Loading */}
+          {viewLoading && (
+            <div className="rounded-xl border border-edu-blue/10 bg-edu-sand/20 p-4 text-center text-sm text-edu-blue">
+              Loading attendance data…
+            </div>
+          )}
+
+          {/* Empty state */}
+          {sessionType && !shouldShowTable && !viewLoading ? (
             <div className="rounded-xl border border-dashed border-edu-blue/30 bg-edu-sand/20 p-6 text-center text-sm text-edu-blue">
               {isViewMode
                 ? !showResult
-                  ? 'Select filters and click Show.'
-                  : 'No attendance found for selected class.'
+                  ? 'Select Branch, Semester and Type then click Show.'
+                  : 'No attendance records found for the selected class.'
                 : `Select Branch, Subject, Semester${isLecture ? '' : ', and Batch'} to view students.`}
             </div>
-          ) : sessionType ? (
+          ) : sessionType && shouldShowTable && !viewLoading ? (
             <>
               <div className="overflow-x-auto rounded-xl border border-edu-blue/10">
                 <table className="w-full min-w-[400px] text-sm">
@@ -447,9 +400,11 @@ function AttendanceSection({ mode = 'enter', initialData = null, records = [], o
                       <th className="px-5 py-3 font-semibold text-edu-navy">Student ID</th>
                       <th className="px-5 py-3 font-semibold text-edu-navy">Student Name</th>
                       <th className="px-5 py-3 text-center font-semibold text-edu-navy">
-                        <div className="flex items-center justify-center gap-2">
-                          <span>Present</span>
-                          {!isViewMode && (
+                        {isViewMode ? (
+                          'Avg. Attendance'
+                        ) : (
+                          <div className="flex items-center justify-center gap-2">
+                            <span>Present</span>
                             <label className="flex cursor-pointer items-center gap-1 text-xs font-normal text-edu-navy/70">
                               <input
                                 type="checkbox"
@@ -459,30 +414,48 @@ function AttendanceSection({ mode = 'enter', initialData = null, records = [], o
                               />
                               All
                             </label>
-                          )}
-                        </div>
+                          </div>
+                        )}
                       </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {students.map((student) => (
-                      <tr
-                        key={student.id}
-                        className="border-b border-edu-blue/10 transition-colors last:border-0 hover:bg-edu-sand/20"
-                      >
-                        <td className="px-5 py-3 font-medium text-edu-navy">{student.id}</td>
-                        <td className="px-5 py-3 text-edu-blue">{student.name}</td>
-                        <td className="px-5 py-3 text-center">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(displayedAttendance[student.id])}
-                            onChange={() => toggle(student.id)}
-                            disabled={isViewMode}
-                            className="h-4 w-4 accent-[#2FA4A9]"
-                          />
-                        </td>
-                      </tr>
-                    ))}
+                    {students.map((student) => {
+                      const avgVal = displayedAttendance[student.id]
+                      return (
+                        <tr
+                          key={student.id}
+                          className="border-b border-edu-blue/10 transition-colors last:border-0 hover:bg-edu-sand/20"
+                        >
+                          <td className="px-5 py-3 font-medium text-edu-navy">{student.id}</td>
+                          <td className="px-5 py-3 text-edu-blue">{student.name}</td>
+                          <td className="px-5 py-3 text-center">
+                            {isViewMode ? (
+                              avgVal === null || avgVal === undefined ? (
+                                <span className="text-edu-navy/40">—</span>
+                              ) : (
+                                <span
+                                  className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                                    avgVal < 75
+                                      ? 'bg-red-100 text-red-700'
+                                      : 'bg-green-100 text-green-700'
+                                  }`}
+                                >
+                                  {avgVal}%
+                                </span>
+                              )
+                            ) : (
+                              <input
+                                type="checkbox"
+                                checked={Boolean(displayedAttendance[student.id])}
+                                onChange={() => toggle(student.id)}
+                                className="h-4 w-4 accent-[#2FA4A9]"
+                              />
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -496,9 +469,7 @@ function AttendanceSection({ mode = 'enter', initialData = null, records = [], o
                   >
                     Submit Attendance
                   </button>
-                  {submitted && (
-                    <span className="text-sm font-medium text-green-600">Attendance submitted!</span>
-                  )}
+                  {submitted && <span className="text-sm font-medium text-green-600">Attendance submitted!</span>}
                 </div>
               )}
             </>

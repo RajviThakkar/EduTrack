@@ -6,32 +6,33 @@ Run from backend directory: python seed_users.py
 
 import sys
 from datetime import datetime, timezone
+import bcrypt
 from app import create_app
 
-# Test credentials
+# Test credentials with plain text passwords - will be hashed
 TEST_USERS = [
     {
+        'name': 'Admin User',
+        'email': 'admin@edutrack.edu',
+        'password': 'admin123',
+        'role': 'admin'
+    },
+    {
         'name': 'Dr. Ananya Sharma',
-        'email': 'ananya.sharma@edutrack.edu',
-        'password': '$2b$12$wnTkIdB5tLtqG2cWKjkaG.c9ptBCRpeVocpgrsOVZTri8N8tHunSC',
+        'email': 'faculty@edutrack.edu',
+        'password': 'faculty123',
         'role': 'faculty'
     },
     {
         'name': 'Ravi Kumar',
-        'email': 'ravi.kumar@edutrack.edu',
-        'password': '$2b$12$MFNSWBETnDhq7QOmpx.iwe9/2CGooFjMEYb6ws7CmV4jnPuDet0lG',
-        'role': 'student'
-    },
-    {
-        'name': 'Neha Patel',
-        'email': 'neha.patel@edutrack.edu',
-        'password': '$2b$12$MFNSWBETnDhq7QOmpx.iwe9/2CGooFjMEYb6ws7CmV4jnPuDet0lG',
+        'email': 'student@edutrack.edu',
+        'password': 'student123',
         'role': 'student'
     },
     {
         'name': 'Counsellor Admin',
         'email': 'counsellor@edutrack.edu',
-        'password': '$2b$12$RGugp8TWML8tf1viom2QyeDGNSULRJZevdl3Y.BE69KS5XzfSjQbG',
+        'password': 'counsellor123',
         'role': 'counsellor'
     }
 ]
@@ -52,6 +53,8 @@ def seed_mongodb():
             
             for user_data in TEST_USERS:
                 email = user_data['email']
+                # Hash the password
+                password_hash = bcrypt.hashpw(user_data['password'].encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
                 
                 # Check if user already exists
                 existing = users_collection.find_one({'email': email})
@@ -62,7 +65,7 @@ def seed_mongodb():
                         {'email': email},
                         {'$set': {
                             'name': user_data['name'],
-                            'password': user_data['password'],
+                            'password': password_hash,
                             'role': user_data['role']
                         }}
                     )
@@ -72,7 +75,7 @@ def seed_mongodb():
                     user_doc = {
                         'name': user_data['name'],
                         'email': email,
-                        'password': user_data['password'],
+                        'password': password_hash,
                         'role': user_data['role'],
                         'created_at': datetime.now(timezone.utc).isoformat()
                     }
@@ -90,20 +93,11 @@ def seed_mongodb():
             print("\nTest Credentials:")
             print("=" * 60)
             
-            # Map emails to actual test passwords
-            password_map = {
-                'ananya.sharma@edutrack.edu': 'faculty123',
-                'ravi.kumar@edutrack.edu': 'student123',
-                'neha.patel@edutrack.edu': 'student123',
-                'counsellor@edutrack.edu': 'counsellor123'
-            }
-            
-            for user in TEST_USERS:
-                email = user['email']
-                pwd = password_map.get(email, 'N/A')
-                print(f"  Email:    {email}")
-                print(f"  Password: {pwd}")
-                print(f"  Role:     {user['role']}\n")
+            # Show the actual credentials
+            for user_data in TEST_USERS:
+                print(f"  Email:    {user_data['email']}")
+                print(f"  Password: {user_data['password']}")
+                print(f"  Role:     {user_data['role']}\n")
             
     except Exception as e:
         print(f"✗ Error: {e}")

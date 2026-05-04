@@ -16,7 +16,7 @@ export default function AdminAllocateClasses() {
   const [batchBranchInput, setBatchBranchInput] = useState('')
   const [batchSemesterInput, setBatchSemesterInput] = useState('')
   const [batchNameInput, setBatchNameInput] = useState('')
-  const [batchPasswordInput, setBatchPasswordInput] = useState('{enrollment}@123')
+  const [batchPasswordInput, setBatchPasswordInput] = useState('student123')
 
   useEffect(() => {
     // Load students
@@ -172,7 +172,7 @@ export default function AdminAllocateClasses() {
               type="text"
               value={batchPasswordInput}
               onChange={(e) => setBatchPasswordInput(e.target.value)}
-              placeholder="{enrollment}@123"
+              placeholder="student123"
               className="rounded-lg border border-edu-blue/20 bg-transparent px-3 py-2 text-sm text-edu-navy/70 focus:border-edu-blue focus:outline-none"
             />
           </div>
